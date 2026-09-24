@@ -1,0 +1,56 @@
+{
+    "TAXA ISC-CL ORTOPEDIA QUADRIL": {
+        "num": "ISC-Quadril",
+        "den": "Ort. Quadril",
+        "fase": "Nenhuma",
+        "tipo": "P (Proporções/Porcentagem)",
+        "mult": 100,
+        "titulo_grafico": "",
+        "sufixo_valor": "%"
+    },
+    "TAXA ISC-CL ARTROPLASTIA TOTAL DE QUADRIL": {
+        "num": "ISC-ATQ",
+        "den": "ATQ",
+        "fase": "Nenhuma",
+        "tipo": "P (Proporções/Porcentagem)",
+        "mult": 100,
+        "titulo_grafico": "",
+        "sufixo_valor": "%"
+    },
+    "TAXA ISC-CL ORTOPEDIA JOELHO": {
+        "num": "ISC-Joelho",
+        "den": "Ort. Joelho",
+        "fase": "Nenhuma",
+        "tipo": "P (Proporções/Porcentagem)",
+        "mult": 100,
+        "titulo_grafico": "",
+        "sufixo_valor": "%"
+    },
+    "TAXA ISC CL": {
+        "num": "ISC CL",
+        "den": "CL",
+        "fase": "STAGE CL",
+        "tipo": "P (Proporções/Porcentagem)",
+        "mult": 100,
+        "titulo_grafico": "",
+        "sufixo_valor": ""
+    },
+    "TAXA ISC-CL ORTOPEDIA COLUNA": {
+        "num": "ISC-Coluna",
+        "den": "Ort. Coluna",
+        "fase": "Nenhuma",
+        "tipo": "P (Proporções/Porcentagem)",
+        "mult": 100,
+        "titulo_grafico": "",
+        "sufixo_valor": ""
+    },
+    "TAXA ISC-CL NEUROCIRURGIA": {
+        "num": "ISC-NEURO",
+        "den": "Neurocirurgia",
+        "fase": "Nenhuma",
+        "tipo": "P (Proporções/Porcentagem)",
+        "mult": 100,
+        "titulo_grafico": "",
+        "sufixo_valor": ""
+    }
+}

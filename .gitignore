@@ -1,0 +1,8 @@
+.venv
+Base_CCIH_Atualizada.xlsx
+ccih_audit.log
+custom_charts.json
+VinTab.bat
+backups_ccih
+__pycache__
+.gitignore
