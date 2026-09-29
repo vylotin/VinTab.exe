@@ -1,7 +1,7 @@
 import plotly.graph_objects as go
 import pandas as pd
 import numpy as np
-from config import METAS_PERCENTIL50, TITULOS_CUSTOMIZADOS
+from .config import METAS_PERCENTIL50, TITULOS_CUSTOMIZADOS
 
 COR_LIMITE_ESTATISTICO = "#B22222"   # vermelho: limite calculado (Laney), varia por ponto
 COR_LIMITE_TEORICO = "#111111"       # preto: teto/piso teórico saturado (ex: 100% ou 0), igual ao Minitab

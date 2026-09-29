@@ -1,5 +1,8 @@
 import sys
 
+# Inicializa o import hook do six antes do hook instalado pelo PySide6.
+import dateutil.tz
+
 from PySide6.QtWidgets import QApplication
 
 from ui.main_window import MainWindow

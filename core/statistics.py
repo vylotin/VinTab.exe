@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from dataclasses import dataclass, field
-from config import D2_MR_N2, NELSON_RUN, EPSILON
+from .config import D2_MR_N2, NELSON_RUN, EPSILON
 
 @dataclass
 class ResultadoLaney:
@@ -24,6 +24,8 @@ def detectar_runs(serie: pd.Series, media: float, n: int = NELSON_RUN) -> pd.Ser
 def calcular_analises_completas(dados: pd.DataFrame, col_data: str, col_num: str, col_den: str, col_fase: str, tipo: str, mult: float) -> ResultadoLaney:
     d = dados.copy()
     d[col_data] = pd.to_datetime(d[col_data], errors="coerce")
+    d[col_num] = pd.to_numeric(d[col_num], errors="coerce")
+    d[col_den] = pd.to_numeric(d[col_den], errors="coerce")
     d = d.dropna(subset=[col_num, col_den, col_data]).sort_values(by=col_data).reset_index(drop=True)
 
     if d.empty:
@@ -58,7 +60,7 @@ def calcular_analises_completas(dados: pd.DataFrame, col_data: str, col_num: str
         u_bar = num_sum / den_sum
         d.loc[mask, "MEDIA"] = u_bar * mult
 
-        if tipo.startswith("U"):
+        if tipo.upper().startswith("U"):
             sigma_i = np.sqrt(u_bar / df_f[col_den].clip(lower=EPSILON))
         else:
             sigma_i = np.sqrt((u_bar * (1 - u_bar)) / df_f[col_den].clip(lower=EPSILON))

@@ -1,12 +1,21 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+from PyInstaller.utils.hooks import collect_data_files
+
 
 a = Analysis(
     ['main.py'],
     pathex=['.'],
     binaries=[],
-    datas=[('base_vintab.db', '.'), ('custom_charts.json', '.')],
-    hiddenimports=[],
+    datas=[
+        ('base_vintab.db', '.'),
+        ('custom_charts.json', '.'),
+        *collect_data_files('plotly', includes=['package_data/plotly.min.js']),
+    ],
+    hiddenimports=[
+        'PySide6.QtWebEngineCore',
+        'PySide6.QtWebEngineWidgets',
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

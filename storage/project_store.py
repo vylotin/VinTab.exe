@@ -1,5 +1,7 @@
 import sqlite3
 from contextlib import closing
+from datetime import date, datetime
+import math
 from pathlib import Path
 
 
@@ -69,6 +71,162 @@ def salvar_conjunto(caminho_projeto, nome_conjunto, colunas, linhas):
                     f"INSERT INTO {tabela_sql} ({nomes_colunas}) VALUES ({marcadores})",
                     linhas_validas,
                 )
+
+
+def importar_planilha_excel(caminho_planilha, caminho_projeto):
+    origem = Path(caminho_planilha).resolve()
+    destino = Path(caminho_projeto).resolve()
+    if origem.suffix.lower() not in {".xlsx", ".xls"} or not origem.is_file():
+        raise ValueError("Selecione uma planilha Excel .xlsx ou .xls existente.")
+    if destino.suffix.lower() != ".vt":
+        raise ValueError("O destino da importação precisa ser um projeto .vt.")
+
+    novo_projeto = not destino.exists()
+    if not novo_projeto and not destino.is_file():
+        raise ValueError("O destino selecionado não é um arquivo válido.")
+
+    try:
+        planilhas = _ler_planilhas_excel(origem)
+        if not planilhas:
+            raise ValueError("A planilha não contém abas para importar.")
+
+        resumo = []
+        with closing(sqlite3.connect(destino)) as conexao:
+            with conexao:
+                tabelas_existentes = {
+                    nome.casefold()
+                    for (nome,) in conexao.execute(
+                        "SELECT name FROM sqlite_master WHERE type = 'table'"
+                    )
+                }
+                for nome_aba, (colunas_originais, linhas_originais) in planilhas.items():
+                    nome_tabela = _validar_nome(nome_aba, "nome da aba")
+                    if nome_tabela.casefold() in tabelas_existentes:
+                        raise ValueError(
+                            f"A tabela '{nome_tabela}' já existe no projeto. "
+                            "Renomeie a aba ou escolha outro projeto."
+                        )
+
+                    colunas = _validar_colunas(colunas_originais)
+                    tabela_sql = _identificador(nome_tabela)
+                    definicoes = ", ".join(
+                        f"{_identificador(coluna)} NUMERIC" for coluna in colunas
+                    )
+                    conexao.execute(
+                        f"CREATE TABLE {tabela_sql} ({definicoes})"
+                    )
+
+                    marcadores = ", ".join("?" for _ in colunas)
+                    nomes_colunas = ", ".join(
+                        _identificador(coluna) for coluna in colunas
+                    )
+                    linhas = linhas_originais
+                    if linhas:
+                        conexao.executemany(
+                            f"INSERT INTO {tabela_sql} ({nomes_colunas}) "
+                            f"VALUES ({marcadores})",
+                            linhas,
+                        )
+                    tabelas_existentes.add(nome_tabela.casefold())
+                    resumo.append((nome_tabela, len(linhas)))
+        return resumo
+    except Exception:
+        if novo_projeto and destino.exists():
+            destino.unlink()
+        raise
+
+
+def _ler_planilhas_excel(caminho):
+    planilhas = {}
+    if caminho.suffix.lower() == ".xlsx":
+        from openpyxl import load_workbook
+
+        livro = load_workbook(caminho, read_only=True, data_only=True)
+        try:
+            for planilha in livro.worksheets:
+                linhas = planilha.iter_rows(values_only=True)
+                cabecalho = next(linhas, None)
+                if cabecalho is None:
+                    raise ValueError(f"A aba '{planilha.title}' está vazia.")
+                cabecalho = list(cabecalho)
+                while cabecalho and cabecalho[-1] is None:
+                    cabecalho.pop()
+                if not cabecalho or any(
+                    valor is None or not str(valor).strip() for valor in cabecalho
+                ):
+                    raise ValueError(
+                        f"A aba '{planilha.title}' precisa ter cabeçalhos em todas as colunas."
+                    )
+                colunas = [str(valor).strip() for valor in cabecalho]
+                linhas_convertidas = []
+                for linha in linhas:
+                    valores = list(linha)
+                    if any(valor is not None for valor in valores[len(colunas):]):
+                        raise ValueError(
+                            f"A aba '{planilha.title}' contém dados sem cabeçalho."
+                        )
+                    valores = valores[:len(colunas)]
+                    valores.extend([None] * (len(colunas) - len(valores)))
+                    linhas_convertidas.append(
+                        [_valor_excel(valor) for valor in valores]
+                    )
+                planilhas[planilha.title] = colunas, linhas_convertidas
+        finally:
+            livro.close()
+        return planilhas
+
+    import xlrd
+
+    livro = xlrd.open_workbook(str(caminho), on_demand=True)
+    try:
+        for planilha in livro.sheets():
+            if planilha.nrows == 0:
+                raise ValueError(f"A aba '{planilha.name}' está vazia.")
+            cabecalho = planilha.row_values(0)
+            while cabecalho and cabecalho[-1] == "":
+                cabecalho.pop()
+            if not cabecalho or any(not str(valor).strip() for valor in cabecalho):
+                raise ValueError(
+                    f"A aba '{planilha.name}' precisa ter cabeçalhos em todas as colunas."
+                )
+            colunas = [str(valor).strip() for valor in cabecalho]
+            linhas_convertidas = []
+            for indice_linha in range(1, planilha.nrows):
+                linha = planilha.row(indice_linha)
+                if any(cell.ctype != xlrd.XL_CELL_EMPTY for cell in linha[len(colunas):]):
+                    raise ValueError(
+                        f"A aba '{planilha.name}' contém dados sem cabeçalho."
+                    )
+                valores = []
+                for cell in linha[:len(colunas)]:
+                    valor = cell.value
+                    if cell.ctype == xlrd.XL_CELL_DATE:
+                        valor = xlrd.xldate.xldate_as_datetime(valor, livro.datemode)
+                    elif cell.ctype in (xlrd.XL_CELL_EMPTY, xlrd.XL_CELL_BLANK):
+                        valor = None
+                    valores.append(_valor_excel(valor))
+                valores.extend([None] * (len(colunas) - len(valores)))
+                linhas_convertidas.append(valores)
+            planilhas[planilha.name] = colunas, linhas_convertidas
+    finally:
+        livro.release_resources()
+    return planilhas
+
+
+def _valor_excel(valor):
+    if valor is None or (isinstance(valor, str) and not valor.strip()):
+        return None
+    if isinstance(valor, datetime):
+        return valor.isoformat(sep=" ")
+    if isinstance(valor, date):
+        return valor.isoformat()
+    if isinstance(valor, float) and math.isnan(valor):
+        return None
+    if hasattr(valor, "item"):
+        valor = valor.item()
+    if isinstance(valor, (str, int, float, bytes)):
+        return valor
+    return str(valor)
 
 
 def _ler_colunas_projeto(caminho_projeto, nome_conjunto):
