@@ -1,8 +1,10 @@
 import sqlite3
+import sys
 from contextlib import closing
 from pathlib import Path
 
 from PySide6.QtGui import QAction
+from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal, Slot
 
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -39,6 +41,27 @@ COLUNAS_PADRAO = (
 )
 
 
+class _SinaisTarefa(QObject):
+    concluida = Signal(object, object, object, bool)
+
+
+class _Tarefa(QRunnable):
+    def __init__(self, funcao, ao_concluir, ao_falhar):
+        super().__init__()
+        self.funcao = funcao
+        self.ao_concluir = ao_concluir
+        self.ao_falhar = ao_falhar
+        self.sinais = _SinaisTarefa()
+
+    def run(self):
+        try:
+            resultado = self.funcao()
+        except Exception as erro:
+            self.sinais.concluida.emit(self.ao_concluir, self.ao_falhar, erro, True)
+        else:
+            self.sinais.concluida.emit(self.ao_concluir, self.ao_falhar, resultado, False)
+
+
 class MainWindow(QMainWindow):
 
     def __init__(self):
@@ -48,13 +71,37 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(1400, 900)
         self._caminho_banco = None
         self._botoes_navegacao = {}
+        self._pool_tarefas = QThreadPool(self)
+        self._tarefas_ativas = 0
+        self._salvando_dados = False
 
         self._criar_menu()
         self._criar_interface()
 
-        banco_padrao = Path(__file__).resolve().parents[1] / "base_vintab.db"
+        raiz_recursos = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[1]))
+        banco_padrao = raiz_recursos / "base_vintab.db"
         if banco_padrao.is_file():
             self._carregar_banco(str(banco_padrao), exibir_erro=False)
+
+    def _executar_em_segundo_plano(self, funcao, ao_concluir, ao_falhar=None, mensagem="Processando..."):
+        tarefa = _Tarefa(funcao, ao_concluir, ao_falhar)
+        tarefa.sinais.concluida.connect(self._finalizar_tarefa)
+        self._tarefas_ativas += 1
+        self.statusBar().showMessage(mensagem)
+        self._pool_tarefas.start(tarefa)
+
+    @Slot(object, object, object, bool)
+    def _finalizar_tarefa(self, ao_concluir, ao_falhar, resultado, falhou):
+        self._tarefas_ativas -= 1
+        if self._tarefas_ativas == 0:
+            self.statusBar().showMessage("Operação concluída", 3000)
+        if falhou:
+            if ao_falhar:
+                ao_falhar(resultado)
+            else:
+                QMessageBox.critical(self, "Erro", str(resultado))
+            return
+        ao_concluir(resultado)
 
     def _criar_menu(self):
         menu_bar = self.menuBar()
@@ -427,16 +474,19 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Projeto existente", "Escolha um nome de arquivo que ainda não exista.")
             return
 
-        try:
+        def criar_arquivo():
             with closing(sqlite3.connect(caminho)):
                 pass
-        except sqlite3.Error as erro:
-            QMessageBox.critical(self, "Erro ao criar projeto", str(erro))
-            return
-        self._carregar_banco(caminho)
+
+        self._executar_em_segundo_plano(
+            criar_arquivo,
+            lambda _resultado: self._carregar_banco(caminho),
+            lambda erro: QMessageBox.critical(self, "Erro ao criar projeto", str(erro)),
+            "Criando projeto...",
+        )
 
     def _carregar_banco(self, caminho, exibir_erro=True):
-        try:
+        def ler_banco():
             uri = Path(caminho).resolve().as_uri() + "?mode=ro"
             with closing(sqlite3.connect(uri, uri=True)) as conexao:
                 tabelas = conexao.execute(
@@ -444,22 +494,33 @@ class MainWindow(QMainWindow):
                     "WHERE type = 'table' AND name NOT LIKE 'sqlite_%' "
                     "ORDER BY name"
                 ).fetchall()
-        except (sqlite3.Error, OSError) as erro:
+            return [nome for (nome,) in tabelas]
+
+        def banco_carregado(tabelas):
+            if self._caminho_banco != str(Path(caminho).resolve()):
+                return
+            self._rotulo_banco.setText(self._caminho_banco)
+            self._rotulo_projeto.setText(
+                self._caminho_banco if caminho.lower().endswith(".vt") else "Nenhum projeto .vt aberto"
+            )
+            self._lista_tabelas.clear()
+            for nome_tabela in tabelas:
+                self._lista_tabelas.addTopLevelItem(QTreeWidgetItem([nome_tabela]))
+            self._atualizar_conjuntos()
+            self._ir_para("banco")
+            self.statusBar().showMessage(f"Banco aberto: {len(tabelas)} tabela(s)")
+
+        def erro_ao_abrir(erro):
             if exibir_erro:
                 QMessageBox.critical(self, "Não foi possível abrir o banco", str(erro))
-            return
 
         self._caminho_banco = str(Path(caminho).resolve())
-        self._rotulo_banco.setText(self._caminho_banco)
-        self._rotulo_projeto.setText(
-            self._caminho_banco if caminho.lower().endswith(".vt") else "Nenhum projeto .vt aberto"
+        self._executar_em_segundo_plano(
+            ler_banco,
+            banco_carregado,
+            erro_ao_abrir,
+            "Abrindo banco de dados...",
         )
-        self._lista_tabelas.clear()
-        for (nome_tabela,) in tabelas:
-            self._lista_tabelas.addTopLevelItem(QTreeWidgetItem([nome_tabela]))
-        self._atualizar_conjuntos()
-        self._ir_para("banco")
-        self.statusBar().showMessage(f"Banco aberto: {len(tabelas)} tabela(s)")
 
     def _fechar_banco(self):
         self._caminho_banco = None
@@ -470,25 +531,44 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Banco fechado")
 
     def _atualizar_conjuntos(self, conjunto_selecionado=None):
-        self._combo_conjuntos.blockSignals(True)
-        self._combo_conjuntos.clear()
-        if self._caminho_banco:
-            try:
-                self._combo_conjuntos.addItems(listar_conjuntos(self._caminho_banco))
-            except (OSError, sqlite3.Error, ValueError) as erro:
-                self._rotulo_estado_dados.setText(f"Não foi possível listar os conjuntos: {erro}")
-        if conjunto_selecionado:
-            indice = self._combo_conjuntos.findText(conjunto_selecionado)
-            if indice >= 0:
-                self._combo_conjuntos.setCurrentIndex(indice)
-        self._combo_conjuntos.blockSignals(False)
-        self._atualizar_estado_editor()
-        if self._combo_conjuntos.currentText():
-            self._carregar_conjunto(self._combo_conjuntos.currentText())
-        else:
+        caminho = self._caminho_banco
+        if not caminho:
+            self._combo_conjuntos.clear()
             self._tabela_dados.clear()
             self._tabela_dados.setRowCount(0)
             self._tabela_dados.setColumnCount(0)
+            self._atualizar_estado_editor()
+            return
+
+        def conjuntos_carregados(nomes):
+            if caminho != self._caminho_banco:
+                return
+            self._combo_conjuntos.blockSignals(True)
+            self._combo_conjuntos.clear()
+            self._combo_conjuntos.addItems(nomes)
+            if conjunto_selecionado:
+                indice = self._combo_conjuntos.findText(conjunto_selecionado)
+                if indice >= 0:
+                    self._combo_conjuntos.setCurrentIndex(indice)
+            self._combo_conjuntos.blockSignals(False)
+            self._atualizar_estado_editor()
+            if self._combo_conjuntos.currentText():
+                self._carregar_conjunto(self._combo_conjuntos.currentText())
+            else:
+                self._tabela_dados.clear()
+                self._tabela_dados.setRowCount(0)
+                self._tabela_dados.setColumnCount(0)
+
+        def erro_ao_listar(erro):
+            if caminho == self._caminho_banco:
+                self._rotulo_estado_dados.setText(f"Não foi possível listar os conjuntos: {erro}")
+
+        self._executar_em_segundo_plano(
+            lambda: listar_conjuntos(caminho),
+            conjuntos_carregados,
+            erro_ao_listar,
+            "Carregando conjuntos...",
+        )
 
     def _atualizar_estado_editor(self):
         projeto_editavel = bool(
@@ -505,7 +585,7 @@ class MainWindow(QMainWindow):
         self._botao_criar_conjunto.setEnabled(projeto_editavel)
         self._botao_adicionar_linha.setEnabled(projeto_editavel and tem_conjunto)
         self._botao_excluir_linha.setEnabled(projeto_editavel and tem_conjunto)
-        self._botao_salvar_dados.setEnabled(projeto_editavel and tem_conjunto)
+        self._botao_salvar_dados.setEnabled(projeto_editavel and tem_conjunto and not self._salvando_dados)
 
         if not self._caminho_banco:
             mensagem = "Abra um projeto .vt para criar e editar dados."
@@ -539,37 +619,52 @@ class MainWindow(QMainWindow):
             return
 
         colunas = [coluna.strip() for coluna in colunas_texto.split(",") if coluna.strip()]
-        try:
-            criar_conjunto(self._caminho_banco, nome, colunas)
-        except (OSError, sqlite3.Error, ValueError) as erro:
-            QMessageBox.warning(self, "Não foi possível criar o conjunto", str(erro))
-            return
-        self._atualizar_conjuntos(nome.strip())
-        self.statusBar().showMessage(f"Conjunto '{nome.strip()}' criado")
+        caminho = self._caminho_banco
+        self._executar_em_segundo_plano(
+            lambda: criar_conjunto(caminho, nome, colunas),
+            lambda _resultado: self._conjunto_criado(nome.strip()),
+            lambda erro: QMessageBox.warning(self, "Não foi possível criar o conjunto", str(erro)),
+            "Criando conjunto...",
+        )
+
+    def _conjunto_criado(self, nome):
+        self._atualizar_conjuntos(nome)
+        self.statusBar().showMessage(f"Conjunto '{nome}' criado")
 
     def _carregar_conjunto(self, nome_conjunto):
         if not self._caminho_banco or not nome_conjunto:
             self._atualizar_estado_editor()
             return
-        try:
-            colunas, linhas = ler_conjunto(self._caminho_banco, nome_conjunto)
-        except (OSError, sqlite3.Error, ValueError) as erro:
-            self._rotulo_estado_dados.setText(f"Não foi possível carregar o conjunto: {erro}")
-            return
+        caminho = self._caminho_banco
 
-        self._tabela_dados.setColumnCount(len(colunas))
-        self._tabela_dados.setHorizontalHeaderLabels(colunas)
-        self._tabela_dados.setRowCount(len(linhas))
-        for indice_linha, linha in enumerate(linhas):
-            for indice_coluna, valor in enumerate(linha):
-                texto = "" if valor is None else str(valor)
-                self._tabela_dados.setItem(
-                    indice_linha,
-                    indice_coluna,
-                    QTableWidgetItem(texto),
-                )
-        self._tabela_dados.resizeColumnsToContents()
-        self._atualizar_estado_editor()
+        def conjunto_carregado(resultado):
+            if caminho != self._caminho_banco or nome_conjunto != self._combo_conjuntos.currentText():
+                return
+            colunas, linhas = resultado
+            self._tabela_dados.setColumnCount(len(colunas))
+            self._tabela_dados.setHorizontalHeaderLabels(colunas)
+            self._tabela_dados.setRowCount(len(linhas))
+            for indice_linha, linha in enumerate(linhas):
+                for indice_coluna, valor in enumerate(linha):
+                    texto = "" if valor is None else str(valor)
+                    self._tabela_dados.setItem(
+                        indice_linha,
+                        indice_coluna,
+                        QTableWidgetItem(texto),
+                    )
+            self._tabela_dados.resizeColumnsToContents()
+            self._atualizar_estado_editor()
+
+        def erro_ao_carregar(erro):
+            if caminho == self._caminho_banco and nome_conjunto == self._combo_conjuntos.currentText():
+                self._rotulo_estado_dados.setText(f"Não foi possível carregar o conjunto: {erro}")
+
+        self._executar_em_segundo_plano(
+            lambda: ler_conjunto(caminho, nome_conjunto),
+            conjunto_carregado,
+            erro_ao_carregar,
+            f"Carregando conjunto '{nome_conjunto}'...",
+        )
 
     def _adicionar_linha(self):
         linha = self._tabela_dados.rowCount()
@@ -603,12 +698,25 @@ class MainWindow(QMainWindow):
                 else ""
                 for indice_coluna in range(self._tabela_dados.columnCount())
             ])
-        try:
-            salvar_conjunto(self._caminho_banco, nome_conjunto, colunas, linhas)
-        except (OSError, sqlite3.Error, ValueError) as erro:
+        caminho = self._caminho_banco
+        self._salvando_dados = True
+        self._executar_em_segundo_plano(
+            lambda: salvar_conjunto(caminho, nome_conjunto, colunas, linhas),
+            lambda _resultado: self._finalizar_salvamento(nome_conjunto, len(linhas)),
+            lambda erro: self._finalizar_salvamento(nome_conjunto, len(linhas), erro),
+            "Salvando dados...",
+        )
+        self._atualizar_estado_editor()
+
+    def _finalizar_salvamento(self, nome_conjunto, quantidade_linhas, erro=None):
+        self._salvando_dados = False
+        self._atualizar_estado_editor()
+        if erro:
             QMessageBox.critical(self, "Não foi possível salvar os dados", str(erro))
             return
-        self.statusBar().showMessage(f"Dados salvos em {nome_conjunto}: {len(linhas)} linha(s)")
+        self.statusBar().showMessage(
+            f"Dados salvos em {nome_conjunto}: {quantidade_linhas} linha(s)"
+        )
 
     def _selecionar_excel(self):
         caminho, _ = QFileDialog.getOpenFileName(

@@ -2,10 +2,10 @@
 
 
 a = Analysis(
-    ['app.py'],
-    pathex=[],
+    ['main.py'],
+    pathex=['.'],
     binaries=[],
-    datas=[],
+    datas=[('base_vintab.db', '.'), ('custom_charts.json', '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
@@ -22,11 +22,11 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='app',
+    name='VinTab',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,
