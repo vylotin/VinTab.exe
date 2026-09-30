@@ -1,8 +1,14 @@
 import sqlite3
+import json
 from contextlib import closing
 from datetime import date, datetime
 import math
 from pathlib import Path
+
+
+TABELA_METADADOS = "__vintab_metadata"
+TABELA_FORMATOS = "__vintab_datasets"
+TABELA_GRAFICOS = "__vintab_charts"
 
 
 def listar_conjuntos(caminho_banco):
@@ -14,7 +20,10 @@ def listar_conjuntos(caminho_banco):
             "WHERE type = 'table' AND name NOT LIKE 'sqlite_%' "
             "ORDER BY name"
         ).fetchall()
-    return [resultado[0] for resultado in resultados]
+    return [
+        resultado[0] for resultado in resultados
+        if not resultado[0].startswith("__vintab_")
+    ]
 
 
 def ler_conjunto(caminho_banco, nome_conjunto):
@@ -28,6 +37,13 @@ def ler_conjunto(caminho_banco, nome_conjunto):
     return colunas, linhas
 
 
+def listar_colunas_conjunto(caminho_banco, nome_conjunto):
+    caminho = Path(caminho_banco).resolve()
+    uri = caminho.as_uri() + "?mode=ro"
+    with closing(sqlite3.connect(uri, uri=True)) as conexao:
+        return _obter_colunas(conexao, nome_conjunto)
+
+
 def criar_conjunto(caminho_projeto, nome_conjunto, colunas):
     caminho = _validar_projeto(caminho_projeto)
     nome = _validar_nome(nome_conjunto, "nome do conjunto")
@@ -39,6 +55,160 @@ def criar_conjunto(caminho_projeto, nome_conjunto, colunas):
             conexao.execute(
                 f"CREATE TABLE {_identificador(nome)} ({definicoes})"
             )
+
+
+def criar_projeto(caminho_projeto, formato, nome_conjunto, colunas):
+    caminho = Path(caminho_projeto).expanduser().resolve()
+    if caminho.suffix.lower() != ".vt":
+        raise ValueError("O projeto deve usar a extensão .vt.")
+    if caminho.exists():
+        raise FileExistsError(f"Já existe um arquivo neste local: {caminho}")
+    if not caminho.parent.is_dir():
+        raise FileNotFoundError(f"A pasta do projeto não existe: {caminho.parent}")
+
+    formato = _validar_formato(formato)
+    nome_conjunto = _validar_nome(nome_conjunto, "nome do conjunto")
+    colunas = _validar_colunas(colunas)
+    try:
+        with closing(sqlite3.connect(caminho)) as conexao:
+            with conexao:
+                _criar_tabelas_internas(conexao)
+                conexao.execute(
+                    f"INSERT INTO {_identificador(TABELA_METADADOS)} (chave, valor) "
+                    "VALUES ('format', ?)",
+                    (formato,),
+                )
+                definicoes = ", ".join(
+                    f"{_identificador(coluna)} NUMERIC" for coluna in colunas
+                )
+                conexao.execute(
+                    f"CREATE TABLE {_identificador(nome_conjunto)} ({definicoes})"
+                )
+                conexao.execute(
+                    f"INSERT INTO {_identificador(TABELA_FORMATOS)} (nome, formato) "
+                    "VALUES (?, ?)",
+                    (nome_conjunto, formato),
+                )
+    except Exception:
+        caminho.unlink(missing_ok=True)
+        raise
+    return caminho
+
+
+def obter_formato_projeto(caminho_projeto):
+    caminho = Path(caminho_projeto).resolve()
+    with closing(sqlite3.connect(caminho.as_uri() + "?mode=ro", uri=True)) as conexao:
+        tabelas = {
+            nome for (nome,) in conexao.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        if TABELA_METADADOS in tabelas:
+            registro = conexao.execute(
+                f"SELECT valor FROM {_identificador(TABELA_METADADOS)} "
+                "WHERE chave = 'format'"
+            ).fetchone()
+            if registro:
+                return _validar_formato(registro[0])
+
+        nomes_dados = [
+            nome for nome in tabelas
+            if not nome.startswith("sqlite_") and not nome.startswith("__vintab_")
+        ]
+        for nome in nomes_dados:
+            colunas = _obter_colunas(conexao, nome)
+            if any(
+                coluna in {"Mês/ano", "ISC-NEURO", "ISC-Coluna", "ISC-Quadril"}
+                for coluna in colunas
+            ):
+                return "ISC"
+    return "IRAS"
+
+
+def obter_formato_conjunto(caminho_projeto, nome_conjunto):
+    caminho = Path(caminho_projeto).resolve()
+    with closing(sqlite3.connect(caminho.as_uri() + "?mode=ro", uri=True)) as conexao:
+        tabelas = {
+            nome for (nome,) in conexao.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        if TABELA_FORMATOS in tabelas:
+            registro = conexao.execute(
+                f"SELECT formato FROM {_identificador(TABELA_FORMATOS)} WHERE nome = ?",
+                (nome_conjunto,),
+            ).fetchone()
+            if registro:
+                return _validar_formato(registro[0])
+    return obter_formato_projeto(caminho)
+
+
+def registrar_formato_conjunto(caminho_projeto, nome_conjunto, formato):
+    caminho = _validar_projeto(caminho_projeto)
+    nome_conjunto = _validar_nome(nome_conjunto, "nome do conjunto")
+    formato = _validar_formato(formato)
+    with closing(sqlite3.connect(caminho)) as conexao:
+        with conexao:
+            _criar_tabelas_internas(conexao)
+            conexao.execute(
+                f"INSERT INTO {_identificador(TABELA_FORMATOS)} (nome, formato) "
+                "VALUES (?, ?) ON CONFLICT(nome) DO UPDATE SET formato = excluded.formato",
+                (nome_conjunto, formato),
+            )
+
+
+def listar_graficos(caminho_projeto):
+    caminho = Path(caminho_projeto).resolve()
+    with closing(sqlite3.connect(caminho.as_uri() + "?mode=ro", uri=True)) as conexao:
+        existe = conexao.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+            (TABELA_GRAFICOS,),
+        ).fetchone()
+        if not existe:
+            return []
+        linhas = conexao.execute(
+            f"SELECT id, nome, conjunto, configuracao, criado_em "
+            f"FROM {_identificador(TABELA_GRAFICOS)} ORDER BY criado_em, id"
+        ).fetchall()
+    return [
+        {
+            "id": identificador,
+            "name": nome,
+            "dataset": conjunto,
+            "config": json.loads(configuracao),
+            "created_at": criado_em,
+        }
+        for identificador, nome, conjunto, configuracao, criado_em in linhas
+    ]
+
+
+def salvar_grafico(caminho_projeto, nome, conjunto, configuracao):
+    caminho = _validar_projeto(caminho_projeto)
+    nome = _validar_nome(nome, "nome do gráfico")
+    conjunto = _validar_nome(conjunto, "nome do conjunto")
+    if conjunto not in listar_conjuntos(caminho):
+        raise ValueError(f"Conjunto não encontrado no projeto: {conjunto}")
+    conteudo = json.dumps(configuracao, ensure_ascii=False, allow_nan=False)
+    with closing(sqlite3.connect(caminho)) as conexao:
+        with conexao:
+            _criar_tabelas_internas(conexao)
+            cursor = conexao.execute(
+                f"INSERT INTO {_identificador(TABELA_GRAFICOS)} "
+                "(nome, conjunto, configuracao) VALUES (?, ?, ?)",
+                (nome, conjunto, conteudo),
+            )
+            return cursor.lastrowid
+
+
+def excluir_grafico(caminho_projeto, identificador):
+    caminho = _validar_projeto(caminho_projeto)
+    with closing(sqlite3.connect(caminho)) as conexao:
+        with conexao:
+            cursor = conexao.execute(
+                f"DELETE FROM {_identificador(TABELA_GRAFICOS)} WHERE id = ?",
+                (int(identificador),),
+            )
+            return cursor.rowcount > 0
 
 
 def salvar_conjunto(caminho_projeto, nome_conjunto, colunas, linhas):
@@ -232,6 +402,30 @@ def _valor_excel(valor):
 def _ler_colunas_projeto(caminho_projeto, nome_conjunto):
     with closing(sqlite3.connect(caminho_projeto)) as conexao:
         return _obter_colunas(conexao, nome_conjunto)
+
+
+def _validar_formato(formato):
+    valor = str(formato).strip().upper()
+    if valor not in {"IRAS", "ISC"}:
+        raise ValueError("O formato do projeto deve ser IRAS ou ISC.")
+    return valor
+
+
+def _criar_tabelas_internas(conexao):
+    conexao.execute(
+        f"CREATE TABLE IF NOT EXISTS {_identificador(TABELA_METADADOS)} ("
+        "chave TEXT PRIMARY KEY, valor TEXT NOT NULL)"
+    )
+    conexao.execute(
+        f"CREATE TABLE IF NOT EXISTS {_identificador(TABELA_FORMATOS)} ("
+        "nome TEXT PRIMARY KEY, formato TEXT NOT NULL)"
+    )
+    conexao.execute(
+        f"CREATE TABLE IF NOT EXISTS {_identificador(TABELA_GRAFICOS)} ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "nome TEXT NOT NULL, conjunto TEXT NOT NULL, "
+        "configuracao TEXT NOT NULL, criado_em TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+    )
 
 
 def _obter_colunas(conexao, nome_conjunto):

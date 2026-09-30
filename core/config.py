@@ -1,5 +1,33 @@
 # config.py
 
+import json
+import sys
+from pathlib import Path
+
+
+def carregar_configuracao_formato(formato):
+    raiz = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[1]))
+    caminho = raiz / "project_formats.json"
+    with caminho.open("r", encoding="utf-8") as arquivo:
+        configuracoes = json.load(arquivo)
+    formatos = configuracoes.get("formats", {})
+    nome = str(formato).strip().upper()
+    try:
+        resultado = dict(formatos[nome])
+    except KeyError as erro:
+        raise ValueError(f"Formato de projeto não configurado: {nome}") from erro
+    resultado["automatic_charts"] = dict(resultado.get("automatic_charts", {}))
+
+    caminho_graficos = raiz / "custom_charts.json"
+    try:
+        with caminho_graficos.open("r", encoding="utf-8") as arquivo:
+            graficos_personalizados = json.load(arquivo)
+    except (OSError, json.JSONDecodeError):
+        graficos_personalizados = {}
+    if isinstance(graficos_personalizados, dict):
+        resultado["automatic_charts"].update(graficos_personalizados)
+    return resultado
+
 CONFIG_INDICADORES = {
     "IPCS": {
         "num": "IPCS", 

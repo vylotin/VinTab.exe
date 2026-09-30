@@ -10,6 +10,7 @@ a = Analysis(
     datas=[
         ('base_vintab.db', '.'),
         ('custom_charts.json', '.'),
+        ('project_formats.json', '.'),
         *collect_data_files('plotly', includes=['package_data/plotly.min.js']),
     ],
     hiddenimports=[

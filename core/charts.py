@@ -205,3 +205,51 @@ def construir_figura_plotly(df_calc: pd.DataFrame, config: dict, nome_ind: str, 
         font=dict(size=14, family="Arial")
             )
     return fig
+
+
+def construir_grafico_mapeado(dados: pd.DataFrame, config: dict) -> go.Figure:
+    """Renderiza um gráfico livre com eixos e agrupamento definidos pelo usuário."""
+    coluna_x = config.get("x")
+    coluna_y = config.get("y")
+    coluna_grupo = config.get("agrupamento") or None
+    visualizacao = config.get("visualizacao", "Linha")
+    obrigatorias = [coluna_x, coluna_y]
+    if coluna_grupo:
+        obrigatorias.append(coluna_grupo)
+    ausentes = [coluna for coluna in obrigatorias if coluna not in dados.columns]
+    if ausentes:
+        raise ValueError("Colunas não encontradas: " + ", ".join(ausentes))
+
+    dataframe = dados[obrigatorias].copy()
+    dataframe[coluna_y] = pd.to_numeric(dataframe[coluna_y], errors="coerce")
+    dataframe = dataframe.dropna(subset=[coluna_x, coluna_y])
+    if dataframe.empty:
+        raise ValueError("Não há valores válidos nas colunas X e Y selecionadas.")
+
+    fig = go.Figure()
+    grupos = (
+        dataframe.groupby(coluna_grupo, dropna=False, sort=False)
+        if coluna_grupo
+        else [("Série", dataframe)]
+    )
+    for nome_grupo, serie in grupos:
+        nome = "Sem agrupamento" if pd.isna(nome_grupo) else str(nome_grupo)
+        opcoes = {"name": nome, "x": serie[coluna_x], "y": serie[coluna_y]}
+        if visualizacao == "Barras":
+            fig.add_trace(go.Bar(**opcoes))
+        else:
+            modo = "markers" if visualizacao == "Dispersão" else "lines+markers"
+            fig.add_trace(go.Scatter(mode=modo, **opcoes))
+
+    fig.update_layout(
+        title=dict(text=config.get("nome", "Gráfico"), x=0.02, xanchor="left"),
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+        hovermode="x unified",
+        xaxis=dict(title=coluna_x, showgrid=True, gridcolor="#E8EEEB"),
+        yaxis=dict(title=coluna_y, showgrid=True, gridcolor="#E8EEEB"),
+        legend=dict(title=coluna_grupo or "Série"),
+        margin=dict(l=55, r=30, t=65, b=55),
+        height=600,
+    )
+    return fig

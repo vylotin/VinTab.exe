@@ -4,12 +4,10 @@ import shutil
 import pandas as pd
 from io import BytesIO
 from datetime import datetime
-import streamlit as st
 
-@st.cache_data(show_spinner="Carregando planilha clínica…")
 def carregar_excel(conteudo_bytes: bytes) -> dict[str, pd.DataFrame]:
-    xls = pd.ExcelFile(BytesIO(conteudo_bytes))
-    return {aba: xls.parse(aba) for aba in xls.sheet_names}
+    with pd.ExcelFile(BytesIO(conteudo_bytes)) as xls:
+        return {aba: xls.parse(aba) for aba in xls.sheet_names}
 
 def ler_arquivo(fonte) -> tuple[dict[str, pd.DataFrame], bytes]:
     if isinstance(fonte, str):

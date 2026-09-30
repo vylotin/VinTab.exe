@@ -1,0 +1,138 @@
+{
+  "version": 1,
+  "formats": {
+    "IRAS": {
+      "dataset_name": "Dados IRAS",
+      "date_column": "MÊS",
+      "columns": [
+        "MÊS",
+        "PCT-dia",
+        "CVC-DIA",
+        "STAGE CVC",
+        "IPCS",
+        "STAGE ICS",
+        "CVD-DIA",
+        "STAGE CVD",
+        "ITU-CV",
+        "STAGE ITUAC",
+        "VM-DIA",
+        "STAGE VM",
+        "PAV",
+        "STAGE PAV"
+      ],
+      "automatic_charts": {
+        "IPCS": {
+          "num": "IPCS",
+          "den": "CVC-DIA",
+          "fase": "STAGE ICS",
+          "tipo": "U (Taxas / Densidade)",
+          "mult": 1000
+        },
+        "ITU-CV": {
+          "num": "ITU-CV",
+          "den": "CVD-DIA",
+          "fase": "STAGE ITUAC",
+          "tipo": "U (Taxas / Densidade)",
+          "mult": 1000
+        },
+        "PAV": {
+          "num": "PAV",
+          "den": "VM-DIA",
+          "fase": "STAGE PAV",
+          "tipo": "U (Taxas / Densidade)",
+          "mult": 1000
+        },
+        "CVC": {
+          "num": "CVC-DIA",
+          "den": "PCT-dia",
+          "fase": "STAGE CVC",
+          "tipo": "P (Proporções)",
+          "mult": 100
+        },
+        "CVD": {
+          "num": "CVD-DIA",
+          "den": "PCT-dia",
+          "fase": "STAGE CVD",
+          "tipo": "P (Proporções)",
+          "mult": 100
+        },
+        "VM": {
+          "num": "VM-DIA",
+          "den": "PCT-dia",
+          "fase": "STAGE VM",
+          "tipo": "P (Proporções)",
+          "mult": 100
+        }
+      }
+    },
+    "ISC": {
+      "dataset_name": "Dados ISC",
+      "date_column": "Mês/ano",
+      "columns": [
+        "Mês/ano",
+        "Neurocirurgia",
+        "NEU100",
+        "ISC-NEURO",
+        "Ort. Coluna",
+        "ORT.CO100",
+        "ISC-Coluna",
+        "Ort. Quadril",
+        "ORT.QUA100",
+        "ISC-Quadril",
+        "ATQ",
+        "ATQ100",
+        "ISC-ATQ",
+        "Ort. Joelho",
+        "ORT.JOL100",
+        "ISC-Joelho"
+      ],
+      "automatic_charts": {
+        "TAXA ISC-CL NEUROCIRURGIA": {
+          "num": "ISC-NEURO",
+          "den": "Neurocirurgia",
+          "fase": "Nenhuma",
+          "tipo": "P (Proporções/Porcentagem)",
+          "mult": 100,
+          "titulo_grafico": "",
+          "sufixo_valor": ""
+        },
+        "TAXA ISC-CL ORTOPEDIA COLUNA": {
+          "num": "ISC-Coluna",
+          "den": "Ort. Coluna",
+          "fase": "Nenhuma",
+          "tipo": "P (Proporções/Porcentagem)",
+          "mult": 100,
+          "titulo_grafico": "",
+          "sufixo_valor": ""
+        },
+        "TAXA ISC-CL ORTOPEDIA QUADRIL": {
+          "num": "ISC-Quadril",
+          "den": "Ort. Quadril",
+          "fase": "Nenhuma",
+          "tipo": "P (Proporções/Porcentagem)",
+          "mult": 100,
+          "titulo_grafico": "",
+          "sufixo_valor": "%"
+        },
+        "TAXA ISC-CL ARTROPLASTIA TOTAL DE QUADRIL": {
+          "num": "ISC-ATQ",
+          "den": "ATQ",
+          "fase": "Nenhuma",
+          "tipo": "P (Proporções/Porcentagem)",
+          "mult": 100,
+          "titulo_grafico": "",
+          "sufixo_valor": "%"
+        },
+        "TAXA ISC-CL ORTOPEDIA JOELHO": {
+          "num": "ISC-Joelho",
+          "den": "Ort. Joelho",
+          "fase": "Nenhuma",
+          "tipo": "P (Proporções/Porcentagem)",
+          "mult": 100,
+          "titulo_grafico": "",
+          "sufixo_valor": ""
+        }
+      }
+    }
+  }
+}

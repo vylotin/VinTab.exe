@@ -3,8 +3,7 @@ import hashlib
 import os
 import secrets
 from datetime import datetime, timedelta
-import streamlit as st
-from audit import registrar_auditoria
+from .audit import registrar_auditoria
 
 # Procura as chaves seguras nas variáveis de ambiente ou no secrets.toml do Streamlit
 HASH_HEX = os.environ.get("CCIH_ADMIN_HASH", "")
@@ -23,6 +22,8 @@ def verificar_senha(digitada: str) -> bool:
 
 def render_login_widget() -> bool:
     """Renderiza a caixa de login e gerencia tentativas contra ataques automatizados."""
+    import streamlit as st
+
     if st.session_state.get("admin_ok", False):
         return True
 
